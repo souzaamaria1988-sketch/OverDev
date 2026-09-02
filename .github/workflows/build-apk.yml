@@ -1,0 +1,41 @@
+name: build apk
+
+# NUNCA roda sozinho em commit de arquivo. Só de dois jeitos:
+#   1. você apertar "Run workflow" na aba Actions
+#   2. você criar uma tag v* (o sinal de "terminei tudo")
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - name: código
+        uses: actions/checkout@v4
+
+      - name: jdk 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: gradle 8.7 (AGP 8.5.2 não suporta Gradle 9)
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+
+      - name: licenças do android sdk
+        run: yes | sdkmanager --licenses > /dev/null || true
+
+      - name: montar o apk
+        run: gradle :app:assembleDebug --no-daemon --stacktrace
+
+      - name: publicar o apk
+        uses: actions/upload-artifact@v4
+        with:
+          name: overdev-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
