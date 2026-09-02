@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ov_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.18"
+            android:text="CONFIGURAÇÕES"
+            android:textColor="@color/ov_red_hi"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:letterSpacing="0.2"
+            android:text="JANELA"
+            android:textColor="@color/ov_faint"
+            android:textSize="10sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="opacidade da janela (%)"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sAlpha"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stepSize="1"
+            android:value="95"
+            android:valueFrom="50"
+            android:valueTo="100"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="largura da janela (%)"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sWidth"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stepSize="1"
+            android:value="85"
+            android:valueFrom="60"
+            android:valueTo="100"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="altura da janela (%)"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sHeight"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stepSize="1"
+            android:value="55"
+            android:valueFrom="40"
+            android:valueTo="90"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="tamanho da bolinha (dp)"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sBubble"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:stepSize="2"
+            android:value="56"
+            android:valueFrom="40"
+            android:valueTo="80"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swMax"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="abrir maximizado"
+            android:textColor="@color/ov_txt"
+            android:textSize="14sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:letterSpacing="0.2"
+            android:text="NAVEGAÇÃO"
+            android:textColor="@color/ov_faint"
+            android:textSize="10sp"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swJs"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="javascript"
+            android:textColor="@color/ov_txt"
+            android:textSize="14sp"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swImg"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="bloquear imagens (economia de dados)"
+            android:textColor="@color/ov_txt"
+            android:textSize="14sp"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swDesk"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="modo desktop (user-agent)"
+            android:textColor="@color/ov_txt"
+            android:textSize="14sp"/>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/swDark"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="forçar modo escuro (android 13+)"
+            android:textColor="@color/ov_txt"
+            android:textSize="14sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="página inicial"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <EditText
+            android:id="@+id/etHome"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="https://…"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:textColor="@color/ov_txt"
+            android:textColorHint="@color/ov_faint"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="user-agent customizado (vazio = padrão)"
+            android:textColor="@color/ov_dim"
+            android:textSize="12sp"/>
+
+        <EditText
+            android:id="@+id/etUA"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Mozilla/5.0 …"
+            android:inputType="text"
+            android:singleLine="true"
+            android:textColor="@color/ov_txt"
+            android:textColorHint="@color/ov_faint"
+            android:textSize="13sp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUaAndroid"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="android"
+                android:textSize="11sp"
+                app:cornerRadius="10dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUaDesktop"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="desktop"
+                android:textSize="11sp"
+                app:cornerRadius="10dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUaIos"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="ios"
+                android:textSize="11sp"
+                app:cornerRadius="10dp"/>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnUaClear"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="6dp"
+                android:layout_weight="1"
+                android:text="limpar"
+                android:textSize="11sp"
+                app:cornerRadius="10dp"/>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:letterSpacing="0.2"
+            android:text="DADOS"
+            android:textColor="@color/ov_faint"
+            android:textSize="10sp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCache"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="LIMPAR CACHE"
+            app:cornerRadius="14dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCookies"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="LIMPAR COOKIES"
+            app:cornerRadius="14dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHist"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="LIMPAR HISTÓRICO"
+            app:cornerRadius="14dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFavs"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="LIMPAR FAVORITOS"
+            app:cornerRadius="14dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="as mudanças aplicam na janela flutuante na hora"
+            android:textColor="@color/ov_faint"
+            android:textSize="11sp"/>
+    </LinearLayout>
+</ScrollView>
