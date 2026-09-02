@@ -23,7 +23,6 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
-import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -38,20 +37,23 @@ import com.zalith.overdev.Prefs
 import com.zalith.overdev.R
 import com.zalith.overdev.SettingsActivity
 import com.zalith.overdev.data.HistoryStore
+import org.json.JSONObject
+import org.json.JSONTokener
 import java.net.URLEncoder
 import java.util.ArrayDeque
 import kotlin.math.abs
 
 /**
- * A janela flutuante inteira: header arrastável, barra de endereço
- * (com copiar/colar), WebView e a bolinha de minimizar.
+ * A janela flutuante inteira.
  *
- * Teclado em campos do site: a janela overlay é NOT_FOCUSABLE por
- * padrão (para não roubar toques do app por baixo) — e janela não
- * focusable não recebe teclado. A ponte JS detecta quando um campo
- * da página ganha foco (focusin) e avisa o Android, que torna a
- * janela focusable e pede foco pro WebView: o teclado abre. Ao sair
- * do campo (focusout), a janela volta ao modo não-focusable.
+ * TECLADO: a janela agora é FOCÁVEL (FLAG_NOT_FOCUSABLE removido) —
+ * tocar em qualquer campo de qualquer site abre o teclado nativamente,
+ * como num navegador normal. Toques FORA da janela continuam passando
+ * para o app de baixo (FLAG_NOT_TOUCH_MODAL cuida disso).
+ *
+ * COPIAR/COLAR: os botões da barra operam no SITE — ⧉ copia a seleção
+ * da página (ou trecho selecionado num campo); o de colar insere o
+ * texto da transferência no campo focado da página.
  */
 @SuppressLint("ClickableViewAccessibility")
 class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedPreferenceChangeListener {
@@ -91,13 +93,14 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private var minimized = false
     private var lastUrl = ""
 
+    // focável + toques fora passam para o app de baixo
     private val baseFlags = WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL or
             WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
 
     private val params = WindowManager.LayoutParams(
         0, 0,
         WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-        baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+        baseFlags,
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
@@ -145,8 +148,9 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         applyWindowSize()
         params.x = ((screenW() - params.width).coerceAtLeast(0)) / 2
         params.y = ((screenH() - params.height).coerceAtLeast(0)) / 4
-        params.flags = baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
+        params.flags = baseFlags
         wm.addView(root, params)
+        webView.requestFocus()
         applySettings()
         Prefs.raw(context).registerOnSharedPreferenceChangeListener(this)
         val home = Prefs.home(context)
@@ -175,7 +179,6 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
                     winDragY = params.y
                     winStartRawX = ev.rawX
                     winStartRawY = ev.rawY
-                    setFocusable(false)
                     true
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -196,12 +199,6 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
         }
         btnConsole.setOnClickListener { showConsole() }
-        root.setOnTouchListener { _, ev ->
-            if (ev.action == MotionEvent.ACTION_OUTSIDE) {
-                setFocusable(false)
-                true
-            } else false
-        }
     }
 
     private fun toggleExpand() {
@@ -214,6 +211,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private fun minimize() {
         if (minimized) return
         minimized = true
+        hideKb()
         try { wm.removeView(root) } catch (e: IllegalArgumentException) { /* não anexada */ }
         bubbleParams.width = dp(Prefs.bubbleDp(context))
         bubbleParams.height = bubbleParams.width
@@ -230,6 +228,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { /* não anexada */ }
         try {
             wm.addView(root, params)
+            webView.requestFocus()
         } catch (e: Exception) {
             service.stopSelf()
         }
@@ -270,10 +269,9 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         }
     }
 
-    // ── barra de endereço · copiar/colar ────────────────
+    // ── barra de endereço · copiar/colar do SITE ────────
 
     private fun setupAddressBar() {
-        urlEdit.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) setFocusable(true) }
         urlEdit.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_GO) {
                 navigate()
@@ -288,40 +286,53 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
             if (webView.canGoForward()) webView.goForward()
         }
 
-        // copiar: escrever na transferência não é restrito — sempre funciona
+        // ⧉ copia a SELEÇÃO do site; sem seleção, cai no endereço
         btnCopy.setOnClickListener {
-            if (!lastUrl.startsWith("http")) {
-                Toast.makeText(context, "nada para copiar ainda", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
-            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            cm.setPrimaryClip(ClipData.newPlainText("url", lastUrl))
-            Toast.makeText(context, "endereço copiado", Toast.LENGTH_SHORT).show()
-        }
-
-        // colar: foca a janela (leitura de transferência exige janela em
-        // foco no Android 10+), tenta ler, e navega se for um endereço
-        btnPaste.setOnClickListener {
-            urlEdit.requestFocus()
-            setFocusable(true)
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(urlEdit, InputMethodManager.SHOW_IMPLICIT)
-            ui.postDelayed({
-                val text = readClipboard()
-                if (text.isNullOrEmpty()) {
-                    Toast.makeText(
-                        context,
-                        "transferência vazia ou bloqueada — toque longo no campo e cole",
-                        Toast.LENGTH_LONG
-                    ).show()
-                } else {
-                    urlEdit.setText(text)
-                    if (text.startsWith("http://") || text.startsWith("https://") ||
-                        (text.contains('.') && !text.contains(' '))) {
-                        navigate()
+            try {
+                webView.evaluateJavascript(SELECTION_JS) { result ->
+                    val sel = unwrapJson(result)
+                    if (!sel.isNullOrBlank()) {
+                        copyToClipboard(sel, "seleção do site copiada")
+                    } else if (lastUrl.startsWith("http")) {
+                        copyToClipboard(lastUrl, "nada selecionado — endereço copiado")
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "selecione texto no site (toque longo) e toque em copiar",
+                            Toast.LENGTH_LONG
+                        ).show()
                     }
                 }
-            }, 220)
+            } catch (e: Exception) { /* página não permite */ }
+        }
+
+        // colar: insere no campo focado DO SITE; sem campo, barra de endereço
+        btnPaste.setOnClickListener {
+            val text = readClipboard()
+            if (text.isNullOrEmpty()) {
+                Toast.makeText(
+                    context,
+                    "transferência vazia ou bloqueada pelo sistema",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+            val quoted = JSONObject.quote(text)
+            try {
+                webView.evaluateJavascript(PASTE_JS + "(" + quoted + ")") { result ->
+                    val pastedInSite = "true" == unwrapJson(result)
+                    if (pastedInSite) {
+                        Toast.makeText(context, "colado no site", Toast.LENGTH_SHORT).show()
+                    } else {
+                        urlEdit.setText(text)
+                        Toast.makeText(
+                            context,
+                            "sem campo focado — colado na barra de endereço",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) { /* página não permite */ }
         }
 
         btnStar.setOnClickListener {
@@ -343,6 +354,16 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         }
     }
 
+    private fun copyToClipboard(text: String, msg: String) {
+        try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("overdev", text))
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "não consegui copiar", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun readClipboard(): String? {
         return try {
             val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -355,11 +376,21 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         }
     }
 
+    /** evaluateJavascript devolve o resultado como JSON ("texto", true, null) — aqui vira Kotlin. */
+    private fun unwrapJson(result: String?): String? {
+        if (result == null || result == "null") return null
+        return try {
+            JSONTokener(result).nextValue()?.toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     private fun navigate() {
         webView.loadUrl(normalize(urlEdit.text.toString()))
         hideKb()
         urlEdit.clearFocus()
-        setFocusable(false)
+        webView.requestFocus()
     }
 
     private fun normalize(input: String): String {
@@ -372,13 +403,10 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         return "https://" + s
     }
 
-    // ── webview · ponte do teclado ──────────────────────
+    // ── webview ─────────────────────────────────────────
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
-        // a ponte: o JS da página avisa quando um campo ganha/perde foco
-        webView.addJavascriptInterface(JsBridge(), "Android")
-
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 url?.let {
@@ -390,10 +418,6 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 url ?: return
-                // injeta o detector de foco em campos desta página
-                try {
-                    view?.evaluateJavascript(FIELD_JS, null)
-                } catch (e: Exception) { /* página não permite */ }
                 val title = view?.title ?: url
                 Thread {
                     HistoryStore.add(context, url, title)
@@ -425,43 +449,11 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         webView.setDownloadListener { _, _, _, _, _ ->
             Toast.makeText(context, "downloads desativados neste navegador", Toast.LENGTH_SHORT).show()
         }
-        // nota: o antigo "esconder teclado ao tocar no WebView" foi removido —
-        // era justamente o que impedia digitar nos campos do site
         webView.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
                 if (webView.canGoBack()) webView.goBack() else minimize()
                 true
             } else false
-        }
-    }
-
-    /** Chamado (via ponte JS) quando um campo da página ganha foco. */
-    private fun onFieldFocused() {
-        if (minimized) return
-        setFocusable(true)
-        webView.requestFocus()
-        // empurrãozinho: refoca o elemento do DOM com a janela já focusable,
-        // forçando o pipeline do IME a abrir o teclado
-        webView.postDelayed({
-            try {
-                webView.evaluateJavascript(NUDGE_JS, null)
-            } catch (e: Exception) { /* ignora */ }
-        }, 80)
-    }
-
-    /** Chamado quando o campo da página perde foco. */
-    private fun onFieldBlurred() {
-        ui.postDelayed({
-            if (!urlEdit.hasFocus()) setFocusable(false)
-        }, 150)
-    }
-
-    private inner class JsBridge {
-        @JavascriptInterface
-        fun fieldFocus(on: Boolean) {
-            ui.post {
-                if (on) onFieldFocused() else onFieldBlurred()
-            }
         }
     }
 
@@ -533,8 +525,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
 
     /**
      * Modo escuro forçado (Android 13+), por reflexão: no SDK o método
-     * existe só como setter (sem getter), o nome variou entre revisões.
-     * Compila sempre; no pior caso o toggle é ignorado no aparelho.
+     * existe só como setter (sem getter) e o nome variou entre revisões.
      */
     private fun applyAlgorithmicDarkening(s: WebSettings, enabled: Boolean) {
         if (Build.VERSION.SDK_INT < 33) return
@@ -562,13 +553,6 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
             params.width = (screenW() * Prefs.widthPct(context)).toInt()
             params.height = (screenH() * Prefs.heightPct(context)).toInt()
         }
-    }
-
-    private fun setFocusable(f: Boolean) {
-        if (minimized) return
-        params.flags = if (f) baseFlags
-        else baseFlags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-        updateSafe()
     }
 
     private fun updateSafe() {
@@ -600,26 +584,25 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 
-        /** Injetado em cada página: avisa o Android quando um campo ganha/perde foco. */
-        private const val FIELD_JS =
-            "(function(){if(window.__ovf)return;window.__ovf=1;" +
-            "function ed(el){if(!el||!el.tagName)return false;" +
-            "var t=el.tagName;" +
-            "if(t=='INPUT'||t=='TEXTAREA'||t=='SELECT')return true;" +
-            "return !!el.isContentEditable;}" +
-            "document.addEventListener('focusin',function(e){" +
-            "if(ed(e.target)&&window.Android){try{Android.fieldFocus(true)}catch(x){}}" +
-            "},true);" +
-            "var tm=null;" +
-            "document.addEventListener('focusout',function(e){" +
-            "if(tm)clearTimeout(tm);" +
-            "tm=setTimeout(function(){" +
-            "if(!ed(document.activeElement)&&window.Android){try{Android.fieldFocus(false)}catch(x){}}" +
-            "},200);" +
-            "},true);})();"
+        /** Seleção atual do site: trecho selecionado num campo OU seleção de texto da página. */
+        private const val SELECTION_JS =
+            "(function(){try{var e=document.activeElement;" +
+            "if(e&&e.selectionStart!=null&&e.selectionEnd!=null&&e.selectionEnd>e.selectionStart){" +
+            "return String(e.value).substring(e.selectionStart,e.selectionEnd)}" +
+            "return String(window.getSelection())}catch(x){return ''}})()"
 
-        /** Refoca o elemento ativo para o IME abrir com a janela focusable. */
-        private const val NUDGE_JS =
-            "if(document.activeElement){document.activeElement.blur();document.activeElement.focus();}"
+        /** Cola o texto t no campo focado: input/textarea (substituindo a seleção) ou contenteditable. */
+        private const val PASTE_JS =
+            "(function(t){var e=document.activeElement;" +
+            "if(!e||!e.tagName)return false;" +
+            "var tag=e.tagName;" +
+            "if(tag=='TEXTAREA'||(tag=='INPUT'&&!/^(checkbox|radio|file|button|submit|image|reset|hidden)$/.test(e.type||'text'))){" +
+            "var s=e.selectionStart==null?e.value.length:e.selectionStart;" +
+            "var en=e.selectionEnd==null?s:e.selectionEnd;" +
+            "e.value=e.value.substring(0,s)+t+e.value.substring(en);" +
+            "e.dispatchEvent(new Event('input',{bubbles:true}));" +
+            "return true}" +
+            "if(e.isContentEditable){try{document.execCommand('insertText',false,t)}catch(x){}return true}" +
+            "return false})"
     }
 }
