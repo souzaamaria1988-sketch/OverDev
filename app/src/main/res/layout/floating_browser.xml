@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/ovRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/ov_window_bg"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/ovHeader"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.15"
+            android:text="❖ OVERDEV"
+            android:textColor="@color/ov_red_hi"
+            android:textSize="12sp"
+            android:textStyle="bold"/>
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1"/>
+
+        <TextView
+            android:id="@+id/btnConsole"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="▤"
+            android:textColor="@color/ov_dim"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/btnCfg"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="⚙"
+            android:textColor="@color/ov_dim"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/btnMin"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="—"
+            android:textColor="@color/ov_dim"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/btnExpand"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="▣"
+            android:textColor="@color/ov_dim"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/btnClose"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="✕"
+            android:textColor="@color/ov_red_hi"
+            android:textSize="16sp"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:background="@color/ov_bar"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="4dp"
+        android:paddingEnd="4dp">
+
+        <TextView
+            android:id="@+id/btnBack"
+            android:layout_width="34dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="◀"
+            android:textColor="@color/ov_dim"
+            android:textSize="14sp"/>
+
+        <TextView
+            android:id="@+id/btnFwd"
+            android:layout_width="34dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="▶"
+            android:textColor="@color/ov_dim"
+            android:textSize="14sp"/>
+
+        <EditText
+            android:id="@+id/urlEdit"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:background="@null"
+            android:hint="endereço ou busca"
+            android:imeOptions="actionGo"
+            android:inputType="textUri"
+            android:singleLine="true"
+            android:textColor="@color/ov_txt"
+            android:textColorHint="@color/ov_faint"
+            android:textSize="13sp"/>
+
+        <TextView
+            android:id="@+id/btnStar"
+            android:layout_width="36dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="☆"
+            android:textColor="@color/ov_dim"
+            android:textSize="16sp"/>
+
+        <TextView
+            android:id="@+id/btnGo"
+            android:layout_width="38dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="▸"
+            android:textColor="@color/ov_red_hi"
+            android:textSize="18sp"
+            android:textStyle="bold"/>
+    </LinearLayout>
+
+    <WebView
+        android:id="@+id/webView"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+</LinearLayout>
