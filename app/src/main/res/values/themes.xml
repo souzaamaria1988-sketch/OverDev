@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.OverDev" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/ov_red_hi</item>
+        <item name="colorOnPrimary">#140404</item>
+        <item name="colorSecondary">@color/ov_red</item>
+        <item name="colorOnSecondary">#140404</item>
+        <item name="colorSurface">@color/ov_surface</item>
+        <item name="colorOnSurface">@color/ov_txt</item>
+        <item name="android:colorBackground">@color/ov_bg</item>
+        <item name="android:statusBarColor">@color/ov_bg</item>
+        <item name="android:navigationBarColor">@color/ov_bg</item>
+    </style>
+</resources>
