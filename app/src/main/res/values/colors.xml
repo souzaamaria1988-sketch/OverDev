@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ov_bg">#0A0808</color>
+    <color name="ov_surface">#141011</color>
+    <color name="ov_bar">#1A1314</color>
+    <color name="ov_line">#2E1B1B</color>
+    <color name="ov_red">#E23B2E</color>
+    <color name="ov_red_hi">#FF5245</color>
+    <color name="ov_txt">#E8E0DC</color>
+    <color name="ov_dim">#9A8F8A</color>
+    <color name="ov_faint">#5C5451</color>
+    <color name="ic_bg">#050505</color>
+</resources>
