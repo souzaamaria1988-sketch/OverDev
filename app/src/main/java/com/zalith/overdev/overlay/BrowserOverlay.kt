@@ -381,8 +381,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
             setTextColor(0xFFCFC4B0.toInt())
             setTextIsSelectable(true)
             setPadding(dp(14), dp(10), dp(14), dp(10))
-            text = consoleBuf.joinToString("
-")
+            text = consoleBuf.joinToString("\n")
         }
         val sv = ScrollView(context)
         sv.addView(tv)
