@@ -143,7 +143,7 @@
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
-            android:contentDescription="copiar endereço"
+            android:contentDescription="copiar seleção do site"
             android:focusable="true"
             android:padding="7dp"
             android:src="@drawable/ic_ov_copy"/>
@@ -154,7 +154,7 @@
             android:layout_height="match_parent"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
-            android:contentDescription="colar da transferência"
+            android:contentDescription="colar no campo do site"
             android:focusable="true"
             android:padding="7dp"
             android:src="@drawable/ic_ov_paste"/>
