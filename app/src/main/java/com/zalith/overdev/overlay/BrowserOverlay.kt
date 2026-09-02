@@ -9,6 +9,9 @@ import android.graphics.PixelFormat
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.view.ContextThemeWrapper
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.LayoutInflater
@@ -44,9 +47,13 @@ import kotlin.math.abs
 @SuppressLint("ClickableViewAccessibility")
 class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedPreferenceChangeListener {
 
-    private val context: Context = service.applicationContext
+    // Tema garantido na inflação: o layout usa ?attr do material/appcompat
+    // e inflar a partir do contexto cru do serviço crasha em vários
+    // aparelhos — o ContextThemeWrapper elimina essa família de bug.
+    private val context: Context = ContextThemeWrapper(service.applicationContext, R.style.Theme_OverDev)
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val density = context.resources.displayMetrics.density
+    private val ui = Handler(Looper.getMainLooper())
 
     private val root: View = LayoutInflater.from(context).inflate(R.layout.floating_browser, null)
     private val urlEdit: EditText = root.findViewById(R.id.urlEdit)
@@ -272,15 +279,21 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
             if (webView.canGoForward()) webView.goForward()
         }
         btnStar.setOnClickListener {
-            if (lastUrl.startsWith("http")) {
-                val added = HistoryStore.toggleBookmark(context, lastUrl, webView.title ?: lastUrl)
-                refreshStar()
-                Toast.makeText(
-                    context,
-                    if (added) "favorito adicionado" else "favorito removido",
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+            if (!lastUrl.startsWith("http")) return@setOnClickListener
+            val url = lastUrl
+            val title = webView.title ?: url
+            Thread {
+                val added = HistoryStore.toggleBookmark(context, url, title)
+                val marked = HistoryStore.isBookmarked(context, url)
+                ui.post {
+                    paintStar(marked)
+                    Toast.makeText(
+                        context,
+                        if (added) "favorito adicionado" else "favorito removido",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }.start()
         }
     }
 
@@ -317,9 +330,15 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
             override fun onPageFinished(view: WebView?, url: String?) {
                 url ?: return
                 val title = view?.title ?: url
-                HistoryStore.add(context, url, title)
-                refreshStar()
-                refreshNav()
+                // IO fora da main thread: registra o histórico sem travar a janela
+                Thread {
+                    HistoryStore.add(context, url, title)
+                    val marked = url.startsWith("http") && HistoryStore.isBookmarked(context, url)
+                    ui.post {
+                        paintStar(marked)
+                        refreshNav()
+                    }
+                }.start()
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -357,8 +376,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         }
     }
 
-    private fun refreshStar() {
-        val marked = lastUrl.startsWith("http") && HistoryStore.isBookmarked(context, lastUrl)
+    private fun paintStar(marked: Boolean) {
         btnStar.text = if (marked) "★" else "☆"
         btnStar.setTextColor(if (marked) 0xFFFF5245.toInt() else 0xFF9A8F8A.toInt())
     }
