@@ -20,6 +20,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.EditText
@@ -64,7 +65,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         background = GradientDrawable().apply {
             shape = GradientDrawable.OVAL
             setColor(0xCC141011.toInt())
-            setStroke(dp(1.5f), 0xFFE23B2E.toInt())
+            setStroke(dp(1.5f).toInt(), 0xFFE23B2E.toInt())
         }
     }
 
@@ -137,9 +138,9 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     }
 
     fun detach() {
-        try { Prefs.raw(context).unregisterOnSharedPreferenceChangeListener(this) } catch (e: Exception) {}
-        try { wm.removeView(root) } catch (e: IllegalArgumentException) {}
-        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) {}
+        try { Prefs.raw(context).unregisterOnSharedPreferenceChangeListener(this) } catch (e: Exception) { /* já removido */ }
+        try { wm.removeView(root) } catch (e: IllegalArgumentException) { /* não anexada */ }
+        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { /* não anexada */ }
         webView.destroy()
     }
 
@@ -197,20 +198,20 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private fun minimize() {
         if (minimized) return
         minimized = true
-        try { wm.removeView(root) } catch (e: IllegalArgumentException) {}
+        try { wm.removeView(root) } catch (e: IllegalArgumentException) { /* não anexada */ }
         bubbleParams.width = dp(Prefs.bubbleDp(context))
         bubbleParams.height = bubbleParams.width
         if (!bubblePlaced) {
             bubbleParams.x = ((screenW() - bubbleParams.width) / 2).coerceAtLeast(0)
             bubbleParams.y = ((screenH() - bubbleParams.height) / 3).coerceAtLeast(0)
         }
-        try { wm.addView(bubble, bubbleParams) } catch (e: Exception) {}
+        try { wm.addView(bubble, bubbleParams) } catch (e: Exception) { /* overlay caiu */ }
     }
 
     private fun restore() {
         if (!minimized) return
         minimized = false
-        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) {}
+        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { /* não anexada */ }
         try {
             wm.addView(root, params)
         } catch (e: Exception) {
@@ -409,9 +410,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         s.domStorageEnabled = true
         s.builtInZoomControls = true
         s.displayZoomControls = false
-        if (Build.VERSION.SDK_INT >= 33) {
-            s.isAlgorithmicDarkeningAllowed = Prefs.forceDark(context)
-        }
+        applyAlgorithmicDarkening(s, Prefs.forceDark(context))
         val ua = Prefs.userAgent(context)
         s.userAgentString = when {
             ua.isNotEmpty() -> ua
@@ -424,6 +423,28 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         bubbleParams.width = dp(Prefs.bubbleDp(context))
         bubbleParams.height = bubbleParams.width
         updateSafeBubble()
+    }
+
+    /**
+     * Modo escuro forçado (Android 13+). No SDK o método existe só como
+     * setter (sem getter), então NÃO vira property no Kotlin — e o nome
+     * variou entre revisões da API. Reflexão tentando os dois nomes:
+     * compila sempre e, no pior caso, o toggle é ignorado no aparelho.
+     */
+    private fun applyAlgorithmicDarkening(s: WebSettings, enabled: Boolean) {
+        if (Build.VERSION.SDK_INT < 33) return
+        val names = arrayOf("setAlgorithmicDarkeningAllowed", "setIsAlgorithmicDarkeningAllowed")
+        for (name in names) {
+            try {
+                val method = s.javaClass.getMethod(name, java.lang.Boolean.TYPE)
+                method.invoke(s, enabled)
+                return
+            } catch (e: NoSuchMethodException) {
+                // tenta o próximo nome
+            } catch (e: Exception) {
+                return
+            }
+        }
     }
 
     // ── util ────────────────────────────────────────────
@@ -447,12 +468,12 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
 
     private fun updateSafe() {
         if (minimized) return
-        try { wm.updateViewLayout(root, params) } catch (e: IllegalArgumentException) {}
+        try { wm.updateViewLayout(root, params) } catch (e: IllegalArgumentException) { /* não anexada */ }
     }
 
     private fun updateSafeBubble() {
         if (!minimized) return
-        try { wm.updateViewLayout(bubble, bubbleParams) } catch (e: IllegalArgumentException) {}
+        try { wm.updateViewLayout(bubble, bubbleParams) } catch (e: IllegalArgumentException) { /* não anexada */ }
     }
 
     private fun hideKb() {
