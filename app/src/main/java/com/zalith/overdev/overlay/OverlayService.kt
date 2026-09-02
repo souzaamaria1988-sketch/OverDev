@@ -10,6 +10,7 @@ import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
+import com.zalith.overdev.CrashGuard
 import com.zalith.overdev.MainActivity
 import com.zalith.overdev.R
 
@@ -23,6 +24,7 @@ class OverlayService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        CrashGuard.install(this)
         createChannel()
         val pi = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE
@@ -39,17 +41,35 @@ class OverlayService : Service() {
         } else {
             startForeground(1, n)
         }
-        overlay = BrowserOverlay(this)
-        overlay?.attach()
+        // nunca mais "app fecha sem explicação": qualquer falha aqui vira
+        // crash.log e o serviço sai limpo. Reabra o app para ler o motivo.
+        try {
+            overlay = BrowserOverlay(this)
+            overlay?.attach()
+        } catch (t: Throwable) {
+            CrashGuard.record(this, "overlay", t)
+            stopSelf()
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        intent?.getStringExtra("url")?.let { overlay?.loadUrl(it) }
+        val url = intent?.getStringExtra("url")
+        if (url != null) {
+            try {
+                overlay?.loadUrl(url)
+            } catch (t: Throwable) {
+                CrashGuard.record(this, "overlay-url", t)
+            }
+        }
         return START_STICKY
     }
 
     override fun onDestroy() {
-        overlay?.detach()
+        try {
+            overlay?.detach()
+        } catch (t: Throwable) {
+            CrashGuard.record(this, "overlay-destroy", t)
+        }
         overlay = null
         super.onDestroy()
     }
