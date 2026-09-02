@@ -31,7 +31,26 @@ jobs:
         run: yes | sdkmanager --licenses > /dev/null || true
 
       - name: montar o apk
-        run: gradle :app:assembleDebug --no-daemon --stacktrace
+        run: |
+          set +e
+          gradle :app:assembleDebug --no-daemon --stacktrace > build.log 2>&1
+          code=$?
+          if [ $code -ne 0 ]; then
+            {
+              echo '## build falhou — as linhas que importam'
+              echo ''
+              grep -E "e: file:|error: |What went wrong|Execution failed for task|Unresolved reference" build.log | head -60 || true
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit $code
+          fi
+
+      - name: log completo (se falhou)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
 
       - name: publicar o apk
         uses: actions/upload-artifact@v4
