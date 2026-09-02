@@ -46,14 +46,14 @@ import kotlin.math.abs
 /**
  * A janela flutuante inteira.
  *
- * TECLADO: a janela agora é FOCÁVEL (FLAG_NOT_FOCUSABLE removido) —
- * tocar em qualquer campo de qualquer site abre o teclado nativamente,
- * como num navegador normal. Toques FORA da janela continuam passando
- * para o app de baixo (FLAG_NOT_TOUCH_MODAL cuida disso).
+ * TECLADO: a janela é FOCÁVEL (FLAG_NOT_FOCUSABLE removido) — tocar em
+ * qualquer campo de qualquer site abre o teclado nativamente. Toques
+ * FORA da janela continuam passando para o app de baixo
+ * (FLAG_NOT_TOUCH_MODAL cuida disso).
  *
- * COPIAR/COLAR: os botões da barra operam no SITE — ⧉ copia a seleção
- * da página (ou trecho selecionado num campo); o de colar insere o
- * texto da transferência no campo focado da página.
+ * COPIAR/COLAR: os botões da barra operam no SITE — copia a seleção da
+ * página (ou trecho selecionado num campo); colar insere o texto da
+ * transferência no campo focado da página.
  */
 @SuppressLint("ClickableViewAccessibility")
 class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedPreferenceChangeListener {
@@ -257,6 +257,355 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
                         bubbleParams.x = clamp(bubbleBaseX + dx.toInt(), 0, screenW() - bubbleParams.width)
                         bubbleParams.y = clamp(bubbleBaseY + dy.toInt(), 0, screenH() - bubbleParams.height)
                         updateSafeBubble()
+                    }
+                    true
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (!bubbleMoved && System.currentTimeMillis() - bubbleDownAt < 350) restore()
+                    true
+                }
+                else -> false
+            }
+        }
+    }
+
+    // ── barra de endereço · copiar/colar do SITE ────────
+
+    private fun setupAddressBar() {
+        urlEdit.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == EditorInfo.IME_ACTION_GO) {
+                navigate()
+                true
+            } else false
+        }
+        btnGo.setOnClickListener { navigate() }
+        btnBack.setOnClickListener {
+            if (webView.canGoBack()) webView.goBack()
+        }
+        btnFwd.setOnClickListener {
+            if (webView.canGoForward()) webView.goForward()
+        }
+
+        // copia a SELEÇÃO do site; sem seleção, cai no endereço
+        btnCopy.setOnClickListener {
+            try {
+                webView.evaluateJavascript(SELECTION_JS) { result ->
+                    val sel = unwrapJson(result)
+                    if (!sel.isNullOrBlank()) {
+                        copyToClipboard(sel, "seleção do site copiada")
+                    } else if (lastUrl.startsWith("http")) {
+                        copyToClipboard(lastUrl, "nada selecionado — endereço copiado")
+                    } else {
+                        Toast.makeText(
+                            context,
+                            "selecione texto no site (toque longo) e toque em copiar",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) { /* página não permite */ }
+        }
+
+        // colar: insere no campo focado DO SITE; sem campo, barra de endereço
+        btnPaste.setOnClickListener {
+            val text = readClipboard()
+            if (text.isNullOrEmpty()) {
+                Toast.makeText(
+                    context,
+                    "transferência vazia ou bloqueada pelo sistema",
+                    Toast.LENGTH_LONG
+                ).show()
+                return@setOnClickListener
+            }
+            val quoted = JSONObject.quote(text)
+            try {
+                webView.evaluateJavascript(PASTE_JS + "(" + quoted + ")") { result ->
+                    val pastedInSite = "true" == unwrapJson(result)
+                    if (pastedInSite) {
+                        Toast.makeText(context, "colado no site", Toast.LENGTH_SHORT).show()
+                    } else {
+                        urlEdit.setText(text)
+                        Toast.makeText(
+                            context,
+                            "sem campo focado — colado na barra de endereço",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            } catch (e: Exception) { /* página não permite */ }
+        }
+
+        btnStar.setOnClickListener {
+            if (!lastUrl.startsWith("http")) return@setOnClickListener
+            val url = lastUrl
+            val title = webView.title ?: url
+            Thread {
+                val added = HistoryStore.toggleBookmark(context, url, title)
+                val marked = HistoryStore.isBookmarked(context, url)
+                ui.post {
+                    paintStar(marked)
+                    Toast.makeText(
+                        context,
+                        if (added) "favorito adicionado" else "favorito removido",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }.start()
+        }
+    }
+
+    private fun copyToClipboard(text: String, msg: String) {
+        try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("overdev", text))
+            Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(context, "não consegui copiar", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun readClipboard(): String? {
+        return try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = cm.primaryClip ?: return null
+            if (clip.itemCount > 0) {
+                clip.getItemAt(0).coerceToText(context)?.toString()?.trim()
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    /** evaluateJavascript devolve o resultado como JSON ("texto", true, null) — aqui vira Kotlin. */
+    private fun unwrapJson(result: String?): String? {
+        if (result == null || result == "null") return null
+        return try {
+            JSONTokener(result).nextValue()?.toString()
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun navigate() {
+        webView.loadUrl(normalize(urlEdit.text.toString()))
+        hideKb()
+        urlEdit.clearFocus()
+        webView.requestFocus()
+    }
+
+    private fun normalize(input: String): String {
+        val s = input.trim()
+        if (s.isEmpty()) return Prefs.home(context)
+        if (s.startsWith("http://") || s.startsWith("https://")) return s
+        if (s.contains(" ") || !s.contains(".")) {
+            return "https://duckduckgo.com/?q=" + URLEncoder.encode(s, "UTF-8")
+        }
+        return "https://" + s
+    }
+
+    // ── webview ─────────────────────────────────────────
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun setupWebView() {
+        webView.webViewClient = object : WebViewClient() {
+            override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+                url?.let {
+                    urlEdit.setText(it)
+                    lastUrl = it
+                }
+                refreshNav()
+            }
+
+            override fun onPageFinished(view: WebView?, url: String?) {
+                url ?: return
+                val title = view?.title ?: url
+                Thread {
+                    HistoryStore.add(context, url, title)
+                    val marked = url.startsWith("http") && HistoryStore.isBookmarked(context, url)
+                    ui.post {
+                        paintStar(marked)
+                        refreshNav()
+                    }
+                }.start()
+            }
+
+            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                return false
+            }
+        }
+        webView.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                val cm = consoleMessage ?: return super.onConsoleMessage(consoleMessage)
+                val src = cm.sourceId() ?: ""
+                val short = src.substringAfterLast('/')
+                consoleBuf.addLast(
+                    "[" + cm.messageLevel().name + "] " + cm.message() +
+                            " (" + short + ":" + cm.lineNumber() + ")"
+                )
+                if (consoleBuf.size > 250) consoleBuf.removeFirst()
+                return true
+            }
+        }
+        webView.setDownloadListener { _, _, _, _, _ ->
+            Toast.makeText(context, "downloads desativados neste navegador", Toast.LENGTH_SHORT).show()
+        }
+        webView.setOnKeyListener { _, keyCode, event ->
+            if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
+                if (webView.canGoBack()) webView.goBack() else minimize()
+                true
+            } else false
+        }
+    }
+
+    private fun paintStar(marked: Boolean) {
+        btnStar.text = if (marked) "★" else "☆"
+        btnStar.setTextColor(if (marked) 0xFFFF5245.toInt() else 0xFF9A8F8A.toInt())
+    }
+
+    private fun refreshNav() {
+        btnBack.alpha = if (webView.canGoBack()) 1f else 0.3f
+        btnFwd.alpha = if (webView.canGoForward()) 1f else 0.3f
+    }
+
+    // ── console (dev) ───────────────────────────────────
+
+    private fun showConsole() {
+        if (consoleBuf.isEmpty()) {
+            Toast.makeText(context, "console vazio — nada capturado ainda", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tv = TextView(context).apply {
+            typeface = Typeface.MONOSPACE
+            textSize = 11f
+            setTextColor(0xFFCFC4B0.toInt())
+            setTextIsSelectable(true)
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            text = consoleBuf.joinToString("\n")
+        }
+        val sv = ScrollView(context)
+        sv.addView(tv)
+        val dialog = MaterialAlertDialogBuilder(context)
+            .setTitle("console · " + consoleBuf.size + " linhas")
+            .setView(sv)
+            .setPositiveButton("limpar") { _, _ -> consoleBuf.clear() }
+            .setNegativeButton("fechar", null)
+            .create()
+        dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        dialog.show()
+    }
+
+    // ── prefs ───────────────────────────────────────────
+
+    override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
+        applySettings()
+    }
+
+    @SuppressLint("SetJavaScriptEnabled")
+    private fun applySettings() {
+        val s = webView.settings
+        s.javaScriptEnabled = Prefs.jsEnabled(context)
+        s.blockNetworkImage = Prefs.blockImages(context)
+        s.domStorageEnabled = true
+        s.builtInZoomControls = true
+        s.displayZoomControls = false
+        applyAlgorithmicDarkening(s, Prefs.forceDark(context))
+        val ua = Prefs.userAgent(context)
+        s.userAgentString = when {
+            ua.isNotEmpty() -> ua
+            Prefs.desktopMode(context) -> DESKTOP_UA
+            else -> null
+        }
+        params.alpha = Prefs.alpha(context)
+        if (!expanded) applyWindowSize()
+        updateSafe()
+        bubbleParams.width = dp(Prefs.bubbleDp(context))
+        bubbleParams.height = bubbleParams.width
+        updateSafeBubble()
+    }
+
+    /**
+     * Modo escuro forçado (Android 13+), por reflexão: no SDK o método
+     * existe só como setter (sem getter) e o nome variou entre revisões.
+     */
+    private fun applyAlgorithmicDarkening(s: WebSettings, enabled: Boolean) {
+        if (Build.VERSION.SDK_INT < 33) return
+        val names = arrayOf("setAlgorithmicDarkeningAllowed", "setIsAlgorithmicDarkeningAllowed")
+        for (name in names) {
+            try {
+                val method = s.javaClass.getMethod(name, java.lang.Boolean.TYPE)
+                method.invoke(s, enabled)
+                return
+            } catch (e: NoSuchMethodException) {
+                // tenta o próximo nome
+            } catch (e: Exception) {
+                return
+            }
+        }
+    }
+
+    // ── util ────────────────────────────────────────────
+
+    private fun applyWindowSize() {
+        if (expanded) {
+            params.width = WindowManager.LayoutParams.MATCH_PARENT
+            params.height = WindowManager.LayoutParams.MATCH_PARENT
+        } else {
+            params.width = (screenW() * Prefs.widthPct(context)).toInt()
+            params.height = (screenH() * Prefs.heightPct(context)).toInt()
+        }
+    }
+
+    private fun updateSafe() {
+        if (minimized) return
+        try { wm.updateViewLayout(root, params) } catch (e: IllegalArgumentException) { /* não anexada */ }
+    }
+
+    private fun updateSafeBubble() {
+        if (!minimized) return
+        try { wm.updateViewLayout(bubble, bubbleParams) } catch (e: IllegalArgumentException) { /* não anexada */ }
+    }
+
+    private fun hideKb() {
+        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.hideSoftInputFromWindow(urlEdit.windowToken, 0)
+        imm.hideSoftInputFromWindow(webView.windowToken, 0)
+    }
+
+    private fun screenW() = context.resources.displayMetrics.widthPixels
+    private fun screenH() = context.resources.displayMetrics.heightPixels
+
+    private fun clamp(v: Int, min: Int, max: Int): Int =
+        if (max <= min) min else v.coerceIn(min, max)
+
+    private fun dp(v: Int) = (v * density + 0.5f).toInt()
+    private fun dp(v: Float) = v * density
+
+    companion object {
+        private const val DESKTOP_UA =
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+        /** Seleção atual do site: trecho selecionado num campo OU seleção de texto da página. */
+        private const val SELECTION_JS =
+            "(function(){try{var e=document.activeElement;" +
+            "if(e&&e.selectionStart!=null&&e.selectionEnd!=null&&e.selectionEnd>e.selectionStart){" +
+            "return String(e.value).substring(e.selectionStart,e.selectionEnd)}" +
+            "return String(window.getSelection())}catch(x){return ''}})()"
+
+        /** Cola o texto t no campo focado: input/textarea (substituindo a seleção) ou contenteditable. */
+        private const val PASTE_JS =
+            "(function(t){var e=document.activeElement;" +
+            "if(!e||!e.tagName)return false;" +
+            "var tag=e.tagName;" +
+            "if(tag=='TEXTAREA'||(tag=='INPUT'&&!/^(checkbox|radio|file|button|submit|image|reset|hidden)$/.test(e.type||'text'))){" +
+            "var s=e.selectionStart==null?e.value.length:e.selectionStart;" +
+            "var en=e.selectionEnd==null?s:e.selectionEnd;" +
+            "e.value=e.value.substring(0,s)+t+e.value.substring(en);" +
+            "e.dispatchEvent(new Event('input',{bubbles:true}));" +
+            "return true}" +
+            "if(e.isContentEditable){try{document.execCommand('insertText',false,t)}catch(x){}return true}" +
+            "return false})"
+    }
+}()
                     }
                     true
                 }
