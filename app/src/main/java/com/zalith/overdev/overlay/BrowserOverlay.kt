@@ -2,6 +2,8 @@ package com.zalith.overdev.overlay
 
 import android.annotation.SuppressLint
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -21,6 +23,7 @@ import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.webkit.ConsoleMessage
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -40,16 +43,20 @@ import java.util.ArrayDeque
 import kotlin.math.abs
 
 /**
- * A janela flutuante inteira: header arrastável, barra de endereço,
- * WebView e a bolinha de minimizar. Mudanças de configuração aplicam
- * na hora (listener de prefs).
+ * A janela flutuante inteira: header arrastável, barra de endereço
+ * (com copiar/colar), WebView e a bolinha de minimizar.
+ *
+ * Teclado em campos do site: a janela overlay é NOT_FOCUSABLE por
+ * padrão (para não roubar toques do app por baixo) — e janela não
+ * focusable não recebe teclado. A ponte JS detecta quando um campo
+ * da página ganha foco (focusin) e avisa o Android, que torna a
+ * janela focusable e pede foco pro WebView: o teclado abre. Ao sair
+ * do campo (focusout), a janela volta ao modo não-focusable.
  */
 @SuppressLint("ClickableViewAccessibility")
 class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedPreferenceChangeListener {
 
-    // Tema garantido na inflação: o layout usa ?attr do material/appcompat
-    // e inflar a partir do contexto cru do serviço crasha em vários
-    // aparelhos — o ContextThemeWrapper elimina essa família de bug.
+    // Tema garantido na inflação (crash clássico de overlay sem tema).
     private val context: Context = ContextThemeWrapper(service.applicationContext, R.style.Theme_OverDev)
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
     private val density = context.resources.displayMetrics.density
@@ -64,6 +71,8 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private val btnGo: TextView = root.findViewById(R.id.btnGo)
     private val btnConsole: TextView = root.findViewById(R.id.btnConsole)
     private val btnExpand: TextView = root.findViewById(R.id.btnExpand)
+    private val btnCopy: View = root.findViewById(R.id.btnCopy)
+    private val btnPaste: View = root.findViewById(R.id.btnPaste)
     private val bubble = TextView(context).apply {
         text = "❖"
         textSize = 18f
@@ -261,7 +270,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         }
     }
 
-    // ── barra de endereço ───────────────────────────────
+    // ── barra de endereço · copiar/colar ────────────────
 
     private fun setupAddressBar() {
         urlEdit.setOnFocusChangeListener { _, hasFocus -> if (hasFocus) setFocusable(true) }
@@ -278,6 +287,43 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         btnFwd.setOnClickListener {
             if (webView.canGoForward()) webView.goForward()
         }
+
+        // copiar: escrever na transferência não é restrito — sempre funciona
+        btnCopy.setOnClickListener {
+            if (!lastUrl.startsWith("http")) {
+                Toast.makeText(context, "nada para copiar ainda", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            cm.setPrimaryClip(ClipData.newPlainText("url", lastUrl))
+            Toast.makeText(context, "endereço copiado", Toast.LENGTH_SHORT).show()
+        }
+
+        // colar: foca a janela (leitura de transferência exige janela em
+        // foco no Android 10+), tenta ler, e navega se for um endereço
+        btnPaste.setOnClickListener {
+            urlEdit.requestFocus()
+            setFocusable(true)
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(urlEdit, InputMethodManager.SHOW_IMPLICIT)
+            ui.postDelayed({
+                val text = readClipboard()
+                if (text.isNullOrEmpty()) {
+                    Toast.makeText(
+                        context,
+                        "transferência vazia ou bloqueada — toque longo no campo e cole",
+                        Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    urlEdit.setText(text)
+                    if (text.startsWith("http://") || text.startsWith("https://") ||
+                        (text.contains('.') && !text.contains(' '))) {
+                        navigate()
+                    }
+                }
+            }, 220)
+        }
+
         btnStar.setOnClickListener {
             if (!lastUrl.startsWith("http")) return@setOnClickListener
             val url = lastUrl
@@ -294,6 +340,18 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
                     ).show()
                 }
             }.start()
+        }
+    }
+
+    private fun readClipboard(): String? {
+        return try {
+            val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            val clip = cm.primaryClip ?: return null
+            if (clip.itemCount > 0) {
+                clip.getItemAt(0).coerceToText(context)?.toString()?.trim()
+            } else null
+        } catch (e: Exception) {
+            null
         }
     }
 
@@ -314,10 +372,13 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         return "https://" + s
     }
 
-    // ── webview ─────────────────────────────────────────
+    // ── webview · ponte do teclado ──────────────────────
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun setupWebView() {
+        // a ponte: o JS da página avisa quando um campo ganha/perde foco
+        webView.addJavascriptInterface(JsBridge(), "Android")
+
         webView.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
                 url?.let {
@@ -329,8 +390,11 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 url ?: return
+                // injeta o detector de foco em campos desta página
+                try {
+                    view?.evaluateJavascript(FIELD_JS, null)
+                } catch (e: Exception) { /* página não permite */ }
                 val title = view?.title ?: url
-                // IO fora da main thread: registra o histórico sem travar a janela
                 Thread {
                     HistoryStore.add(context, url, title)
                     val marked = url.startsWith("http") && HistoryStore.isBookmarked(context, url)
@@ -361,18 +425,43 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
         webView.setDownloadListener { _, _, _, _, _ ->
             Toast.makeText(context, "downloads desativados neste navegador", Toast.LENGTH_SHORT).show()
         }
-        webView.setOnTouchListener { _, ev ->
-            if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-                hideKb()
-                setFocusable(false)
-            }
-            false
-        }
+        // nota: o antigo "esconder teclado ao tocar no WebView" foi removido —
+        // era justamente o que impedia digitar nos campos do site
         webView.setOnKeyListener { _, keyCode, event ->
             if (keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) {
                 if (webView.canGoBack()) webView.goBack() else minimize()
                 true
             } else false
+        }
+    }
+
+    /** Chamado (via ponte JS) quando um campo da página ganha foco. */
+    private fun onFieldFocused() {
+        if (minimized) return
+        setFocusable(true)
+        webView.requestFocus()
+        // empurrãozinho: refoca o elemento do DOM com a janela já focusable,
+        // forçando o pipeline do IME a abrir o teclado
+        webView.postDelayed({
+            try {
+                webView.evaluateJavascript(NUDGE_JS, null)
+            } catch (e: Exception) { /* ignora */ }
+        }, 80)
+    }
+
+    /** Chamado quando o campo da página perde foco. */
+    private fun onFieldBlurred() {
+        ui.postDelayed({
+            if (!urlEdit.hasFocus()) setFocusable(false)
+        }, 150)
+    }
+
+    private inner class JsBridge {
+        @JavascriptInterface
+        fun fieldFocus(on: Boolean) {
+            ui.post {
+                if (on) onFieldFocused() else onFieldBlurred()
+            }
         }
     }
 
@@ -443,10 +532,9 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     }
 
     /**
-     * Modo escuro forçado (Android 13+). No SDK o método existe só como
-     * setter (sem getter), então NÃO vira property no Kotlin — e o nome
-     * variou entre revisões da API. Reflexão tentando os dois nomes:
-     * compila sempre e, no pior caso, o toggle é ignorado no aparelho.
+     * Modo escuro forçado (Android 13+), por reflexão: no SDK o método
+     * existe só como setter (sem getter), o nome variou entre revisões.
+     * Compila sempre; no pior caso o toggle é ignorado no aparelho.
      */
     private fun applyAlgorithmicDarkening(s: WebSettings, enabled: Boolean) {
         if (Build.VERSION.SDK_INT < 33) return
@@ -496,6 +584,7 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private fun hideKb() {
         val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.hideSoftInputFromWindow(urlEdit.windowToken, 0)
+        imm.hideSoftInputFromWindow(webView.windowToken, 0)
     }
 
     private fun screenW() = context.resources.displayMetrics.widthPixels
@@ -510,5 +599,27 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     companion object {
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+
+        /** Injetado em cada página: avisa o Android quando um campo ganha/perde foco. */
+        private const val FIELD_JS =
+            "(function(){if(window.__ovf)return;window.__ovf=1;" +
+            "function ed(el){if(!el||!el.tagName)return false;" +
+            "var t=el.tagName;" +
+            "if(t=='INPUT'||t=='TEXTAREA'||t=='SELECT')return true;" +
+            "return !!el.isContentEditable;}" +
+            "document.addEventListener('focusin',function(e){" +
+            "if(ed(e.target)&&window.Android){try{Android.fieldFocus(true)}catch(x){}}" +
+            "},true);" +
+            "var tm=null;" +
+            "document.addEventListener('focusout',function(e){" +
+            "if(tm)clearTimeout(tm);" +
+            "tm=setTimeout(function(){" +
+            "if(!ed(document.activeElement)&&window.Android){try{Android.fieldFocus(false)}catch(x){}}" +
+            "},200);" +
+            "},true);})();"
+
+        /** Refoca o elemento ativo para o IME abrir com a janela focusable. */
+        private const val NUDGE_JS =
+            "if(document.activeElement){document.activeElement.blur();document.activeElement.focus();}"
     }
 }
