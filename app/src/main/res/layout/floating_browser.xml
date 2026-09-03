@@ -123,6 +123,18 @@
             android:textColor="@color/ov_dim"
             android:textSize="13sp"/>
 
+        <TextView
+            android:id="@+id/btnReload"
+            android:layout_width="32dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="↻"
+            android:textColor="@color/ov_dim"
+            android:textSize="15sp"/>
+
         <EditText
             android:id="@+id/urlEdit"
             android:layout_width="0dp"
@@ -172,6 +184,18 @@
             android:textSize="15sp"/>
 
         <TextView
+            android:id="@+id/btnShare"
+            android:layout_width="32dp"
+            android:layout_height="match_parent"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:text="⤴"
+            android:textColor="@color/ov_dim"
+            android:textSize="15sp"/>
+
+        <TextView
             android:id="@+id/btnGo"
             android:layout_width="36dp"
             android:layout_height="match_parent"
@@ -184,6 +208,16 @@
             android:textSize="17sp"
             android:textStyle="bold"/>
     </LinearLayout>
+
+    <ProgressBar
+        android:id="@+id/loadingBar"
+        style="?android:attr/progressBarStyleHorizontal"
+        android:layout_width="match_parent"
+        android:layout_height="3dp"
+        android:indeterminate="false"
+        android:max="100"
+        android:progressDrawable="@drawable/ov_progress"
+        android:visibility="gone"/>
 
     <WebView
         android:id="@+id/webView"
