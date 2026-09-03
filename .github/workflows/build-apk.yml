@@ -1,8 +1,6 @@
 name: build apk
 
-# NUNCA roda sozinho em commit de arquivo. Só de dois jeitos:
-#   1. você apertar "Run workflow" na aba Actions
-#   2. você criar uma tag v* (o sinal de "terminei tudo")
+# NUNCA roda sozinho em commit — só manual (Run workflow) ou tag v*
 on:
   workflow_dispatch:
   push:
@@ -35,13 +33,18 @@ jobs:
           set +e
           gradle :app:assembleDebug --no-daemon --stacktrace > build.log 2>&1
           code=$?
-          if [ $code -ne 0 ]; then
+          if [ "$code" -ne 0 ]; then
+            echo '────── as linhas que importam ──────'
+            grep -m 60 -E 'e: file:|error: |Unresolved reference|What went wrong|Execution failed for task' build.log || true
+            echo '─────────────────────────────────────'
             {
               echo '## build falhou — as linhas que importam'
               echo ''
-              grep -E "e: file:|error: |What went wrong|Execution failed for task|Unresolved reference" build.log | head -60 || true
+              echo '```'
+              grep -m 60 -E 'e: file:|error: |Unresolved reference|What went wrong|Execution failed for task' build.log || true
+              echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
-            exit $code
+            exit "$code"
           fi
 
       - name: log completo (se falhou)
