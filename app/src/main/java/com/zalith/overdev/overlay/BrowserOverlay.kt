@@ -7,6 +7,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.graphics.drawable.GradientDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.ContextThemeWrapper
@@ -18,17 +19,15 @@ import android.view.WindowManager
 import android.view.inputmethod.InputMethodManager
 import android.webkit.WebView
 import android.widget.EditText
+import android.widget.ProgressBar
 import android.widget.TextView
 import com.zalith.overdev.Prefs
 import com.zalith.overdev.R
 import com.zalith.overdev.SettingsActivity
+import com.zalith.overdev.util.CrashHandler
+import com.zalith.overdev.util.safeRun
 import kotlin.math.abs
 
-/**
- * Núcleo do overlay: janela, arraste, bolinha e minimizar/maximizar.
- * WebView vive em WebPane; barra vive em AddressBar; prefs em
- * OverlaySettings — mesmo pacote, arquivo pequeno cada.
- */
 @SuppressLint("ClickableViewAccessibility")
 class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedPreferenceChangeListener {
 
@@ -42,14 +41,18 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     internal val webView: WebView = root.findViewById(R.id.webView)
     internal val btnBack: TextView = root.findViewById(R.id.btnBack)
     internal val btnFwd: TextView = root.findViewById(R.id.btnFwd)
+    internal val btnReload: TextView = root.findViewById(R.id.btnReload)
     internal val btnStar: TextView = root.findViewById(R.id.btnStar)
+    internal val btnShare: TextView = root.findViewById(R.id.btnShare)
     internal val btnGo: TextView = root.findViewById(R.id.btnGo)
     internal val btnConsole: TextView = root.findViewById(R.id.btnConsole)
     internal val btnExpand: TextView = root.findViewById(R.id.btnExpand)
     internal val btnCopy: View = root.findViewById(R.id.btnCopy)
     internal val btnPaste: View = root.findViewById(R.id.btnPaste)
+    internal val loadingBar: ProgressBar = root.findViewById(R.id.loadingBar)
+
     internal val bubble: TextView = TextView(context).apply {
-        text = "❖"
+        text = "\u2756"
         textSize = 18f
         setTextColor(0xFFFF5245.toInt())
         gravity = Gravity.CENTER
@@ -107,179 +110,189 @@ class BrowserOverlay(private val service: Service) : SharedPreferences.OnSharedP
     private var bubbleBaseY = 0
 
     init {
+        safeRun { CrashHandler.install(context) }
         setupWindowControls()
         setupBubble()
     }
 
     fun attach() {
-        expanded = Prefs.startMax(context)
-        btnExpand.text = if (expanded) "▢" else "▣"
-        applyWindowSize()
-        params.x = ((screenW() - params.width).coerceAtLeast(0)) / 2
-        params.y = ((screenH() - params.height).coerceAtLeast(0)) / 4
-        params.flags = baseFlags
-        wm.addView(root, params)
-        webView.requestFocus()
-        OverlaySettings.apply(this)
-        Prefs.raw(context).registerOnSharedPreferenceChangeListener(this)
-        val home = Prefs.home(context)
-        if (home.isNotBlank()) webView.loadUrl(home)
+        safeRun {
+            expanded = Prefs.startMax(context)
+            btnExpand.text = if (expanded) "\u25a2" else "\u25a3"
+            applyWindowSize()
+            params.x = ((screenW() - params.width).coerceAtLeast(0)) / 2
+            params.y = ((screenH() - params.height).coerceAtLeast(0)) / 4
+            params.flags = baseFlags
+            wm.addView(root, params)
+            webView.requestFocus()
+            OverlaySettings.apply(this)
+            Prefs.raw(context).registerOnSharedPreferenceChangeListener(this)
+            val home = Prefs.home(context)
+            if (home.isNotBlank()) webView.loadUrl(home)
+        }
     }
 
     fun detach() {
-        try { Prefs.raw(context).unregisterOnSharedPreferenceChangeListener(this) } catch (e: Exception) { }
-        try { wm.removeView(root) } catch (e: IllegalArgumentException) { }
-        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { }
-        webView.destroy()
+        safeRun {
+            try { Prefs.raw(context).unregisterOnSharedPreferenceChangeListener(this) } catch (e: Exception) { }
+            try { wm.removeView(root) } catch (e: IllegalArgumentException) { }
+            try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { }
+            webView.destroy()
+        }
     }
 
-    fun loadUrl(url: String) {
-        bar.load(url)
-    }
+    fun loadUrl(url: String) { safeRun { bar.load(url) } }
 
     override fun onSharedPreferenceChanged(sp: SharedPreferences?, key: String?) {
-        OverlaySettings.apply(this)
+        safeRun { OverlaySettings.apply(this) }
     }
 
     private fun setupWindowControls() {
-        val header: View = root.findViewById(R.id.ovHeader)
-        header.setOnTouchListener { _, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    winDragX = params.x
-                    winDragY = params.y
-                    winStartRawX = ev.rawX
-                    winStartRawY = ev.rawY
-                    true
+        safeRun {
+            val header: View = root.findViewById(R.id.ovHeader)
+            header.setOnTouchListener { _, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        winDragX = params.x; winDragY = params.y
+                        winStartRawX = ev.rawX; winStartRawY = ev.rawY; true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        params.x = winDragX + (ev.rawX - winStartRawX).toInt()
+                        params.y = winDragY + (ev.rawY - winStartRawY).toInt()
+                        updateWindow(); true
+                    }
+                    else -> false
                 }
-                MotionEvent.ACTION_MOVE -> {
-                    params.x = winDragX + (ev.rawX - winStartRawX).toInt()
-                    params.y = winDragY + (ev.rawY - winStartRawY).toInt()
-                    updateWindow()
-                    true
-                }
-                else -> false
             }
+            root.findViewById<View>(R.id.btnMin).setOnClickListener { safeRun { minimize() } }
+            root.findViewById<View>(R.id.btnExpand).setOnClickListener { safeRun { toggleExpand() } }
+            root.findViewById<View>(R.id.btnClose).setOnClickListener { safeRun { service.stopSelf() } }
+            root.findViewById<View>(R.id.btnCfg).setOnClickListener {
+                safeRun {
+                    context.startActivity(Intent(context, SettingsActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
+            btnConsole.setOnClickListener { safeRun { webPane.showConsole() } }
         }
-        root.findViewById<View>(R.id.btnMin).setOnClickListener { minimize() }
-        root.findViewById<View>(R.id.btnExpand).setOnClickListener { toggleExpand() }
-        root.findViewById<View>(R.id.btnClose).setOnClickListener { service.stopSelf() }
-        root.findViewById<View>(R.id.btnCfg).setOnClickListener {
-            context.startActivity(
-                Intent(context, SettingsActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-        }
-        btnConsole.setOnClickListener { webPane.showConsole() }
     }
 
     private fun toggleExpand() {
-        expanded = !expanded
-        applyWindowSize()
-        btnExpand.text = if (expanded) "▢" else "▣"
-        updateWindow()
+        safeRun {
+            expanded = !expanded
+            applyWindowSize()
+            btnExpand.text = if (expanded) "\u25a2" else "\u25a3"
+            updateWindow()
+        }
     }
 
     internal fun minimize() {
-        if (minimized) return
-        minimized = true
-        hideKb()
-        try { wm.removeView(root) } catch (e: IllegalArgumentException) { }
-        bubbleParams.width = dp(Prefs.bubbleDp(context))
-        bubbleParams.height = bubbleParams.width
-        if (!bubblePlaced) {
-            bubbleParams.x = ((screenW() - bubbleParams.width) / 2).coerceAtLeast(0)
-            bubbleParams.y = ((screenH() - bubbleParams.height) / 3).coerceAtLeast(0)
+        safeRun {
+            if (minimized) return
+            minimized = true
+            hideKb()
+            try { wm.removeView(root) } catch (e: IllegalArgumentException) { }
+            bubbleParams.width = dp(Prefs.bubbleDp(context))
+            bubbleParams.height = bubbleParams.width
+            if (!bubblePlaced) {
+                bubbleParams.x = ((screenW() - bubbleParams.width) / 2).coerceAtLeast(0)
+                bubbleParams.y = ((screenH() - bubbleParams.height) / 3).coerceAtLeast(0)
+            }
+            try { wm.addView(bubble, bubbleParams) } catch (e: Exception) { }
         }
-        try { wm.addView(bubble, bubbleParams) } catch (e: Exception) { }
     }
 
     private fun restore() {
-        if (!minimized) return
-        minimized = false
-        try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { }
-        try {
-            wm.addView(root, params)
-            webView.requestFocus()
-        } catch (e: Exception) {
-            service.stopSelf()
+        safeRun {
+            if (!minimized) return
+            minimized = false
+            try { wm.removeView(bubble) } catch (e: IllegalArgumentException) { }
+            try { wm.addView(root, params); webView.requestFocus() }
+            catch (e: Exception) { service.stopSelf() }
         }
     }
 
     private fun setupBubble() {
-        bubble.setOnTouchListener { _, ev ->
-            when (ev.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    bubbleMoved = false
-                    bubbleDownAt = System.currentTimeMillis()
-                    bubbleStartRawX = ev.rawX
-                    bubbleStartRawY = ev.rawY
-                    bubbleBaseX = bubbleParams.x
-                    bubbleBaseY = bubbleParams.y
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val dx = ev.rawX - bubbleStartRawX
-                    val dy = ev.rawY - bubbleStartRawY
-                    if (abs(dx) > dp(6) || abs(dy) > dp(6)) bubbleMoved = true
-                    if (bubbleMoved) {
-                        bubblePlaced = true
-                        bubbleParams.x = clamp(bubbleBaseX + dx.toInt(), 0, screenW() - bubbleParams.width)
-                        bubbleParams.y = clamp(bubbleBaseY + dy.toInt(), 0, screenH() - bubbleParams.height)
-                        updateBubble()
+        safeRun {
+            bubble.setOnTouchListener { _, ev ->
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        bubbleMoved = false; bubbleDownAt = System.currentTimeMillis()
+                        bubbleStartRawX = ev.rawX; bubbleStartRawY = ev.rawY
+                        bubbleBaseX = bubbleParams.x; bubbleBaseY = bubbleParams.y; true
                     }
-                    true
+                    MotionEvent.ACTION_MOVE -> {
+                        val dx = ev.rawX - bubbleStartRawX; val dy = ev.rawY - bubbleStartRawY
+                        if (abs(dx) > dp(6) || abs(dy) > dp(6)) bubbleMoved = true
+                        if (bubbleMoved) {
+                            bubblePlaced = true
+                            bubbleParams.x = clamp(bubbleBaseX + dx.toInt(), 0, screenW() - bubbleParams.width)
+                            bubbleParams.y = clamp(bubbleBaseY + dy.toInt(), 0, screenH() - bubbleParams.height)
+                            updateBubble()
+                        }
+                        true
+                    }
+                    MotionEvent.ACTION_UP -> {
+                        if (!bubbleMoved && System.currentTimeMillis() - bubbleDownAt < 350) restore()
+                        true
+                    }
+                    else -> false
                 }
-                MotionEvent.ACTION_UP -> {
-                    if (!bubbleMoved && System.currentTimeMillis() - bubbleDownAt < 350) restore()
-                    true
-                }
-                else -> false
             }
         }
     }
 
     internal fun refreshNav() {
-        btnBack.alpha = if (webView.canGoBack()) 1f else 0.3f
-        btnFwd.alpha = if (webView.canGoForward()) 1f else 0.3f
+        safeRun {
+            btnBack.alpha = if (webView.canGoBack()) 1f else 0.3f
+            btnFwd.alpha = if (webView.canGoForward()) 1f else 0.3f
+        }
     }
 
     internal fun paintStar(marked: Boolean) {
-        btnStar.text = if (marked) "★" else "☆"
-        btnStar.setTextColor(if (marked) 0xFFFF5245.toInt() else 0xFF9A8F8A.toInt())
+        safeRun {
+            btnStar.text = if (marked) "\u2605" else "\u2606"
+            btnStar.setTextColor(if (marked) 0xFFFF5245.toInt() else 0xFF9A8F8A.toInt())
+        }
+    }
+
+    internal fun showLoading(show: Boolean) {
+        safeRun { loadingBar.visibility = if (show) View.VISIBLE else View.GONE }
+    }
+
+    internal fun updateProgress(progress: Int) {
+        safeRun {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) loadingBar.setProgress(progress, true)
+            else loadingBar.progress = progress
+            loadingBar.visibility = if (progress < 100) View.VISIBLE else View.GONE
+        }
     }
 
     internal fun hideKb() {
-        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(urlEdit.windowToken, 0)
-        imm.hideSoftInputFromWindow(webView.windowToken, 0)
+        safeRun {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(urlEdit.windowToken, 0)
+            imm.hideSoftInputFromWindow(webView.windowToken, 0)
+        }
     }
 
     internal fun applyWindowSize() {
-        if (expanded) {
-            params.width = WindowManager.LayoutParams.MATCH_PARENT
-            params.height = WindowManager.LayoutParams.MATCH_PARENT
-        } else {
-            params.width = (screenW() * Prefs.widthPct(context)).toInt()
-            params.height = (screenH() * Prefs.heightPct(context)).toInt()
+        safeRun {
+            if (expanded) { params.width = WindowManager.LayoutParams.MATCH_PARENT; params.height = WindowManager.LayoutParams.MATCH_PARENT }
+            else { params.width = (screenW() * Prefs.widthPct(context)).toInt(); params.height = (screenH() * Prefs.heightPct(context)).toInt() }
         }
     }
 
     internal fun updateWindow() {
-        if (minimized) return
-        try { wm.updateViewLayout(root, params) } catch (e: IllegalArgumentException) { }
+        safeRun { if (minimized) return; try { wm.updateViewLayout(root, params) } catch (e: IllegalArgumentException) { } }
     }
 
     internal fun updateBubble() {
-        if (!minimized) return
-        try { wm.updateViewLayout(bubble, bubbleParams) } catch (e: IllegalArgumentException) { }
+        safeRun { if (!minimized) return; try { wm.updateViewLayout(bubble, bubbleParams) } catch (e: IllegalArgumentException) { } }
     }
 
-    internal fun screenW() = context.resources.displayMetrics.widthPixels
-    internal fun screenH() = context.resources.displayMetrics.heightPixels
-
-    internal fun clamp(v: Int, min: Int, max: Int): Int =
-        if (max <= min) min else v.coerceIn(min, max)
-
-    internal fun dp(v: Int) = (v * density + 0.5f).toInt()
-    internal fun dp(v: Float) = v * density
+    internal fun screenW() = safeRun(0) { context.resources.displayMetrics.widthPixels }
+    internal fun screenH() = safeRun(0) { context.resources.displayMetrics.heightPixels }
+    internal fun clamp(v: Int, min: Int, max: Int): Int = if (max <= min) min else v.coerceIn(min, max)
+    internal fun dp(v: Int) = safeRun(0) { (v * density + 0.5f).toInt() }
+    internal fun dp(v: Float) = safeRun(0f) { v * density }
 }
